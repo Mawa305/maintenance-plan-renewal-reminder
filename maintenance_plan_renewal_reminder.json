@@ -1,0 +1,388 @@
+{
+  "name": "Maintenance Plan Renewal Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        128
+      ],
+      "id": "d0f0ab48-185f-414b-a66d-bac7a2a8cbb6",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "renewals",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        128
+      ],
+      "id": "9286c31f-980f-485d-80c1-aee9f8ffd891",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });\nconst toDay = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d) / 86400000; };\nconst emailOk = e => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(e || '');\n\nreturn $input.all().map(({ json: r }) => {\n  let action = 'skip', stage = null, daysLeft = null;\n  const dateOk = /^\\d{4}-\\d{2}-\\d{2}$/.test(r.plan_end_date || '');\n\n  if (!emailOk(r.email) || !dateOk) {\n    action = 'invalid';\n  } else {\n    daysLeft = toDay(r.plan_end_date) - toDay(today);\n    if (daysLeft >= 0 && daysLeft <= 7) stage = '7d';\n    else if (daysLeft > 7 && daysLeft <= 14) stage = '14d';\n    else if (daysLeft > 14 && daysLeft <= 30) stage = '30d';\n    if (stage && r.reminder_status !== 'sent_' + stage) action = 'send';\n  }\n  return { json: { ...r, days_left: daysLeft, stage, action } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        128
+      ],
+      "id": "e5958c56-d2e9-466a-af9b-bbdf0e2de998",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "7b7f2917-5672-4e61-870e-ea72f84ce726"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "06cdf3a2-630f-453b-8883-054d1b45b289",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "invalid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "invalid"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        128
+      ],
+      "id": "50933fb3-e58d-48b5-aed0-165292009002",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "renewals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "reminder_status",
+              "fieldValue": "invalid"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        960,
+        224
+      ],
+      "id": "e767c5ff-8120-49df-8b9e-d1e6e75a6191",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Write a short, friendly renewal reminder email body for an HVAC maintenance plan customer.\n\nCustomer name: {{ $json.customer_name }}\nPlan: {{ $json.plan_type }}\nPlan expires on: {{ $json.plan_end_date }}\nDays left: {{ $json.days_left }}\nReminder stage: {{ $json.stage }}\n\nRules:\n- Max 90 words, plain text only, no markdown, no subject line\n- Tone: 30d = gentle, 14d = helpful reminder, 7d = polite but urgent\n- Do NOT invent prices, discounts or offers\n- Mention the expiry date and end with the line: Renew here: [PAYMENT_LINK]\n- Sign off as: The HVAC Service Team"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        32
+      ],
+      "id": "d2f997ec-fcd2-4130-8647-be57e2c63939",
+      "name": "Message a model",
+      "retryOnFail": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Switch').item.json.email }}",
+        "subject": "=Your {{ $('Switch').item.json.plan_type }} maintenance plan expires on {{ $('Switch').item.json.plan_end_date }}",
+        "emailType": "text",
+        "message": "={{ $json.output[0].content[0].text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -48
+      ],
+      "id": "f711340f-b9a1-45da-b66a-1fedfdd73838",
+      "name": "Send a message",
+      "retryOnFail": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "renewals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Switch').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "reminder_status",
+              "fieldValue": "=sent_{{ $('Switch').item.json.stage }}"
+            },
+            {
+              "fieldId": "last_reminder_date",
+              "fieldValue": "={{ $now.toFormat('yyyy-MM-dd') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        -96
+      ],
+      "id": "4e205728-665b-4e43-85cb-12a54d02cd51",
+      "name": "Update a row1",
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Renewal reminder failed \nCustomer: {{ $('Switch').item.json.customer_name }} \nEmail: {{ $('Switch').item.json.email }}\nStage: {{ $('Switch').item.json.stage }}\nError: {{ $json.error }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1472,
+        128
+      ],
+      "id": "dfd19e81-a531-4eb0-9bb9-093c10a41c68",
+      "name": "Send a text message",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Update a row1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}
